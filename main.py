@@ -8,7 +8,7 @@ from trainer.tuner import Tuner
 
 if __name__ == '__main__':
 
-    set_seed(2025)
+    set_seed(configs['train']['seed'])
 
     data_handler = build_data_handler()
     data_handler.load_data()

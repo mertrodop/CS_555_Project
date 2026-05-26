@@ -61,6 +61,9 @@ class Trainer(object):
         best_recall = -1e9
         self.create_optimizer(model)
         train_config = configs['train']
+        _t0 = time.time()
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
         for epoch_idx in range(train_config['epoch']):
             # train
             self.train_epoch(model, epoch_idx)
@@ -93,6 +96,9 @@ class Trainer(object):
         # save result
         self.save_model(model)
         self.logger.log("Best Epoch {}. Final test result: {}.".format(best_epoch, test_result))
+        _wall = time.time() - _t0
+        _mem_mb = torch.cuda.max_memory_allocated() / 1024**2 if torch.cuda.is_available() else 0.0
+        self.logger.log("[REPRO] wall_clock_s={:.1f} peak_mem_mb={:.1f}".format(_wall, _mem_mb))
 
     @log_exceptions
     def evaluate(self, model, epoch_idx=None):

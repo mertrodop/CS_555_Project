@@ -33,7 +33,7 @@ def parse_configure(model=None, dataset=None):
     configs['diverse'] = args.diverse
     if args.dataset:
         configs['data']['name'] = args.dataset
-    if args.seed:
+    if args.seed is not None:
         configs['train']['seed'] = args.seed
 
     user_embedding_path = f"{pre_dir}/data/{configs['data']['name']}/usr_emb_np.pkl"
