@@ -96,9 +96,21 @@ class Trainer(object):
         # save result
         self.save_model(model)
         self.logger.log("Best Epoch {}. Final test result: {}.".format(best_epoch, test_result))
-        _wall = time.time() - _t0
+        _wall   = time.time() - _t0
         _mem_mb = torch.cuda.max_memory_allocated() / 1024**2 if torch.cuda.is_available() else 0.0
-        self.logger.log("[REPRO] wall_clock_s={:.1f} peak_mem_mb={:.1f}".format(_wall, _mem_mb))
+        k_list  = configs['test']['k']
+        k20_idx = k_list.index(20) if 20 in k_list else len(k_list) - 1
+        _repro  = "[REPRO] wall_clock_s={:.1f} peak_mem_mb={:.1f} recall@20={:.4f} ndcg@20={:.4f}".format(
+            _wall, _mem_mb,
+            test_result['recall'][k20_idx],
+            test_result['ndcg'][k20_idx],
+        )
+        if configs.get('attack', {}).get('enabled', False):
+            _repro += " target_hr@20={:.4f} target_exposure@20={:.4f}".format(
+                float(test_result.get('target_hr',       [0.0])[0]),
+                float(test_result.get('target_exposure', [0.0])[0]),
+            )
+        self.logger.log(_repro)
 
     @log_exceptions
     def evaluate(self, model, epoch_idx=None):
@@ -110,7 +122,8 @@ class Trainer(object):
     @log_exceptions
     def test(self, model):
         model.eval()
-        eval_result = self.metric.eval(model, self.data_handler.test_dataloader)
+        eval_result = self.metric.eval(model, self.data_handler.test_dataloader,
+                                       include_target_metrics=True)
         self.logger.log_eval(eval_result, configs['test']['k'], data_type='Test set')
         return eval_result
     

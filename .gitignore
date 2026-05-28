@@ -30,3 +30,7 @@ wandb/
 # Keep results CSVs and configs
 !results/
 !configs/
+
+# Data backups and archives
+data_bak/
+*.zip

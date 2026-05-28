@@ -3,6 +3,34 @@ import numpy as np
 from config.configurator import configs
 
 
+def target_hit_ratio(batch_ratings_list, target_items_set, k=20):
+    """
+    Compute attack-success metrics over genuine test users.
+
+    Parameters
+    ----------
+    batch_ratings_list : list of (batch_size, max_k) CPU tensors (top-k item indices)
+    target_items_set   : set of target item indices
+    k                  : cutoff (default 20)
+
+    Returns
+    -------
+    hr  : float — fraction of users with ≥1 target item in top-k
+    exp : float — mean number of target items in top-k per user
+    """
+    hr_sum = exposure_sum = n_users = 0
+    for batch in batch_ratings_list:
+        topk = batch[:, :k].numpy()
+        for row in topk:
+            hits = int(sum(1 for x in row if x in target_items_set))
+            hr_sum       += 1 if hits > 0 else 0
+            exposure_sum += hits
+            n_users      += 1
+    hr  = hr_sum / n_users  if n_users else 0.0
+    exp = exposure_sum / n_users if n_users else 0.0
+    return hr, exp
+
+
 class Metric(object):
     def __init__(self):
         self.metrics = configs['test']['metrics']
@@ -79,7 +107,7 @@ class Metric(object):
 
         return result
 
-    def eval(self, model, test_dataloader):
+    def eval(self, model, test_dataloader, include_target_metrics=False):
         result = {}
         for metric in self.metrics:
             result[metric] = np.zeros(len(self.k))
@@ -116,6 +144,14 @@ class Metric(object):
         for batch_result in eval_results:
             for metric in self.metrics:
                 result[metric] += batch_result[metric] / test_user_num
+
+        # attack-success metrics — only on final test, not per-epoch validation
+        if include_target_metrics and configs.get('attack', {}).get('enabled', False):
+            tgt = set(configs['attack'].get('target_items', []))
+            if tgt:
+                hr, exp = target_hit_ratio(batch_ratings, tgt, k=20)
+                result['target_hr']       = np.array([hr])
+                result['target_exposure'] = np.array([exp])
 
         return result
 

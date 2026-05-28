@@ -14,10 +14,7 @@ Outputs (all in results/):
 import os
 import re
 import ast
-import csv
 import math
-import glob
-from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -235,8 +232,6 @@ def build_paper_vs_ours_md(df):
 
 def build_summary_md(df):
     total_expected = 80
-    total_done = df["seed"].nunique() * 0  # recount properly
-    # Count unique (base, aug, dataset, seed) tuples
     done_runs = df.drop_duplicates(subset=["dataset", "base", "augmentation", "seed"])
     n_done = len(done_runs)
 

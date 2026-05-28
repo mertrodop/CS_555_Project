@@ -74,6 +74,30 @@ class DataHandlerGeneralCF:
         tst_mat = self._load_one_mat(self.tst_file)
 
         self.trn_mat = trn_mat
+
+        # Attack injection: expand trn_mat with fake users before adjacency construction
+        if configs.get('attack', {}).get('enabled', False):
+            from attack.shilling import inject_shilling_attack, make_fake_embeddings
+            atk = configs['attack']
+            n_genuine = trn_mat.shape[0]
+            item_pop  = np.array(trn_mat.tocsc().sum(axis=0)).flatten()
+            self.trn_mat, target_items, n_fake = inject_shilling_attack(
+                trn_mat, item_pop, n_genuine, atk
+            )
+            trn_mat = self.trn_mat
+            configs['attack']['target_items']    = target_items
+            configs['attack']['n_fake_users']    = n_fake
+            configs['attack']['n_genuine_users'] = n_genuine
+            if configs.get('user_embedding') is not None and n_fake > 0:
+                fake_emb = make_fake_embeddings(
+                    np.array(configs['user_embedding']), n_fake,
+                    mode=atk.get('emb_mode', 'clone'),
+                    seed=atk.get('target_seed', 42),
+                )
+                configs['user_embedding'] = np.vstack(
+                    [np.array(configs['user_embedding']), fake_emb]
+                )
+
         configs['data']['user_num'], configs['data']['item_num'] = trn_mat.shape
         self.torch_adj = self._make_torch_adj(trn_mat)
 

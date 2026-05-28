@@ -56,8 +56,13 @@ class Logger(object):
 
         for metric in eval_result:
             message += '['
-            for i in range(len(k)):
-                message += '{}@{}: {:.4f} '.format(metric, k[i], eval_result[metric][i])
+            n = min(len(k), len(eval_result[metric]))
+            for i in range(n):
+                if len(eval_result[metric]) < len(k):
+                    # Single-value metric (e.g. target_hr@20): no @k suffix, name already carries context
+                    message += '{}: {:.4f} '.format(metric, eval_result[metric][i])
+                else:
+                    message += '{}@{}: {:.4f} '.format(metric, k[i], eval_result[metric][i])
             message += '] '
         if save_to_log:
             self.logger.info(message)

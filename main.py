@@ -1,3 +1,6 @@
+from load_data.download_data import ensure_datasets
+ensure_datasets()
+
 from config.configurator import configs
 from trainer.utils import set_seed
 from models.bulid_model import build_model
