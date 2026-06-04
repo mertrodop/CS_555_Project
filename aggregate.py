@@ -291,8 +291,14 @@ def build_summary_md(df):
 def main():
     os.makedirs("results", exist_ok=True)
 
-    print("Collecting runs from logs/...")
-    df = collect_all_runs("logs")
+    if os.path.exists(os.path.join("logs", "amazon")) or os.path.exists(os.path.join("logs", "yelp")):
+        logs_dir = "logs"
+    elif os.path.exists(os.path.join("log", "amazon")) or os.path.exists(os.path.join("log", "yelp")):
+        logs_dir = "log"
+    else:
+        logs_dir = "logs"
+    print(f"Collecting runs from {logs_dir}/...")
+    df = collect_all_runs(logs_dir)
 
     if df.empty:
         print("No log files found. Run the grid first.")

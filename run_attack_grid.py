@@ -73,8 +73,9 @@ def append_row(row_dict):
 # Log parsing
 # ---------------------------------------------------------------------------
 def find_latest_log(model_name):
-    pattern = os.path.join('logs', model_name, '*.log')
-    files = glob.glob(pattern)
+    pattern1 = os.path.join('log', model_name, '*.log')
+    pattern2 = os.path.join('logs', model_name, '*.log')
+    files = glob.glob(pattern1) + glob.glob(pattern2)
     if not files:
         return None
     return max(files, key=os.path.getmtime)
