@@ -1,250 +1,187 @@
 # LLM-AGR: Large Language Model Augmented Graph Representation Learning for Recommendation
 
-LLM-AGR enhances graph-based collaborative filtering models with LLM-derived user/item embeddings. It wraps four base GNN recommenders (LightGCN, SGL, SimGCL, BiGCF) with semantic embedding injection, preference knowledge distillation, adaptive graph structure learning, and an information bottleneck regularizer. Experiments run on Amazon-book and Yelp.
+This repository contains the implementation, reproduction pipelines, adversarial robustness evaluations, and generative explainability extensions for the **LLM-AGR** (Large Language Model Augmented Graph Representation Learning) framework. 
+
+LLM-AGR enhances standard graph-based collaborative filtering (GNN) recommenders by integrating LLM-derived semantic embeddings, optimizing user/item profile alignments, executing preference knowledge distillation, and employing adaptive graph structure learning with an information bottleneck regularizer to filter out noise.
 
 ---
 
-## Setup
+## Key Features & Extensions
 
-**Prerequisites:** Python 3.9+, CUDA GPU recommended.
+1. **Base GNN Models & AGR Wrappers:** Implements four base collaborative filtering backbones (`LightGCN`, `SGL`, `SimGCL`, and `BiGCF`) and their respective augmented `_agr` variants.
+2. **Adversarial Robustness (Augmentation 1):** Robustness sweeps and shilling attack simulations (injecting fake bot profiles with Random or Bandwagon filler strategies to promote specific target items) to evaluate adaptive structural denoising.
+3. **Generative Explainability Module (Augmentation 2):** Maps collaborative graph representations back to the LLM semantic space using trained MLP projectors. It retrieves semantic nearest-neighbor items and leverages a local **Qwen2.5-7B-Instruct** model to generate fluent, personalized recommendations explanations.
+
+---
+
+## System Requirements & Hardware Context
+- **OS:** Linux (tested on Ubuntu)
+- **Python:** Python 3.9+
+- **GPU:** CUDA compatible GPU with high VRAM (tested on RTX 5090).
+- **Local Language Models:**
+  - **Generator:** `Qwen/Qwen2.5-7B-Instruct` (loaded with `device_map='auto'` and `torch_dtype='auto'` for optimal GPU/VRAM utilization).
+  - **Semantic Evaluator:** SentenceTransformer `all-MiniLM-L6-v2` for computing cosine similarities between generated explanations and ground-truth reasoning texts.
+
+---
+
+## Setup & Installation
+
+### 1. Install Base & PyTorch Dependencies
+Install the required packages:
 
 ```bash
-# 1. Install base dependencies
+# Clone the repository and navigate inside
+cd CS_555_Project
+
+# Install base dependencies
 pip install -r requirements.txt
 
-# 2. Install PyTorch (CUDA 12.4)
+# Install PyTorch with CUDA 12.4 support
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
-# 3. Install PyG sparse ops (match your torch version)
+# Install PyG sparse operations matching PyTorch 2.6.0
 pip install torch_sparse torch_scatter -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
+```
 
-# 4. Download datasets (auto-downloads to data/)
+### 2. Install Explainability Dependencies
+The explainability module relies on standard text-processing and transformer packages:
+
+```bash
+pip install transformers accelerate sentence-transformers scikit-learn matplotlib pandas
+```
+
+### 3. Download Datasets
+Initialize and download the required pre-processed datasets (`Amazon-book` and `Yelp` containing user/item graphs and LLM profile embeddings):
+
+```bash
 python -c "from load_data.download_data import ensure_datasets; ensure_datasets()"
 ```
 
 ---
 
-## Running Normal Training
+## Workflow 1: Paper Replication (80-Run Grid)
 
-**Entry point:** `main.py`
+To replicate the paper's main recommendation performance results (Table 3), we evaluate 8 models across 2 datasets with 5 random seeds (totaling 80 runs).
 
-```bash
-python main.py [--model MODEL] [--dataset DATASET] [--seed SEED] [--device DEVICE] [--cuda CUDA_ID] [--ablation VARIANT]
-```
-
-### CLI Flags
-
-| Flag | Default | Options |
-|------|---------|---------|
-| `--model` | `lightgcn_agr` | `lightgcn`, `lightgcn_agr`, `sgl`, `sgl_agr`, `simgcl`, `simgcl_agr`, `bigcf`, `bigcf_agr` |
-| `--dataset` | `amazon` | `amazon`, `yelp` |
-| `--seed` | `2025` | any integer |
-| `--device` | `cuda` | `cuda`, `cpu` |
-| `--cuda` | `0` | GPU device index |
-| `--ablation` | `none` | `none`, `wo_ags_ib`, `wo_kd`, `wo_se` |
-
-**Ablation variants:**
-- `none` — full LLM-AGR (all components enabled)
-- `wo_ags_ib` — disable Adaptive Graph Structure + Information Bottleneck
-- `wo_kd` — disable preference Knowledge Distillation
-- `wo_se` — disable Semantic Embedding losses
-
-### Examples
+### Option A: Local Grid Sweep (Recommended)
+You can run the full sequential grid sweep locally using the provided shell script. It is designed to automatically skip already completed runs (resumable):
 
 ```bash
-# LightGCN-AGR on Amazon, seed 42
-python main.py --model lightgcn_agr --dataset amazon --seed 42
-
-# Base LightGCN (no LLM) on Yelp
-python main.py --model lightgcn --dataset yelp --seed 0
-
-# BiGCF-AGR ablation: without knowledge distillation
-python main.py --model bigcf_agr --dataset amazon --ablation wo_kd --seed 1
-
-# Run on CPU
-python main.py --model simgcl_agr --dataset yelp --device cpu --seed 0
-
-# Use GPU 1
-python main.py --model sgl_agr --dataset amazon --cuda 1 --seed 2
+chmod +x run_grid.sh
+./run_grid.sh
 ```
 
-### Hyperparameter Configuration
+### Option B: Google Colab Sweep
+Use the Jupyter Notebook `llm_agr_repro.ipynb` to mount Google Drive, install dependencies, and execute the reproduction grid in a cloud GPU environment. Logs are synchronized dynamically to Google Drive to allow seamless resume states.
 
-Edit the YAML files in `config/models_config/` to tune hyperparameters. Each file has dataset-specific sections (`amazon:`, `yelp:`) that override the base values. Key LLM-AGR parameters:
-
-| Parameter | Meaning |
-|-----------|---------|
-| `alpha` | LLM semantic embedding weight |
-| `beta` | HSIC / information bottleneck regularization strength |
-| `prf_weight` | User/item profile alignment weight |
-| `kd_weight` | Knowledge distillation weight |
-| `str_weight` | Structural knowledge weight |
-
-Logs are saved to `logs/{dataset}/`, checkpoints to `checkpoint/`.
-
----
-
-## Running Shilling Attacks
-
-### Single Attack Run
-
-Pass a YAML attack config to `main.py` via `--attack_config`:
-
-```bash
-# 1. Write an attack config file
-cat > /tmp/attack.yml << 'EOF'
-attack:
-  enabled: true
-  attack_size: 10       # % of genuine users to inject as fake users
-  num_targets: 10       # number of target items to promote
-  strategy: bandwagon   # bandwagon (popular filler) or random
-  target_seed: 42       # RNG seed for target item selection
-  emb_mode: clone       # fake embeddings: clone (copy genuine) or mean
-EOF
-
-# 2. Run training with the attack
-python main.py --model bigcf_agr --dataset amazon --seed 0 --attack_config /tmp/attack.yml
-```
-
-**Attack config fields:**
-
-| Field | Description |
-|-------|-------------|
-| `attack_size` | Injected fake users as % of genuine users (e.g. 10 → 10%) |
-| `strategy` | `bandwagon`: fill profiles with popular items; `random`: random items |
-| `emb_mode` | `clone`: copy random genuine user embeddings; `mean`: use mean embedding |
-| `target_seed` | Fixes which items are selected as promotion targets |
-
-### Attack Grid (75 runs per dataset)
-
-`run_attack_grid.py` runs a resumable sweep over all variants, attack sizes, and seeds:
-
-```bash
-python run_attack_grid.py [dataset] [strategy]
-```
-
-**Grid dimensions (per dataset/strategy):**
-- **Variants:** `full`, `wo_ags_ib`, `wo_kd`, `wo_se`, `base` (5)
-- **Attack sizes:** 0%, 5%, 10%, 15%, 25% (5)
-- **Seeds:** 0, 1, 2 (3)
-- **Total:** 75 runs
-
-All variants use `bigcf_agr` as the underlying model (`base` uses plain `bigcf`).
-
-```bash
-# Amazon, bandwagon strategy
-python run_attack_grid.py amazon bandwagon
-
-# Amazon, random strategy
-python run_attack_grid.py amazon random
-
-# Yelp, bandwagon strategy
-python run_attack_grid.py yelp bandwagon
-```
-
-Results are appended to `results/attack_grid.csv`. Runs already present in the CSV are skipped automatically, so the script is safe to interrupt and resume.
-
-**Output columns:** `dataset`, `base_model`, `variant`, `strategy`, `attack_size`, `seed`, `recall@20`, `ndcg@20`, `target_hr@20`, `target_exposure@20`, `wall_clock_s`, `peak_mem_mb`
-
-### Analyzing Attack Results
-
-```bash
-python analyze_attack.py [results/attack_grid.csv]
-```
-
-Produces in `results/`:
-- `attack_summary.csv` — mean ± std per (variant, attack_size)
-- `robustness.png` — recall/NDCG degradation curves by variant
-- `attack_success.png` — target hit-rate curves by variant
-- `ATTACK_FINDINGS.md` — written summary of robustness findings
-
----
-
-## Running the Reproduction Grid (Colab)
-
-`llm_agr_repro.ipynb` runs the full 80-run reproduction sweep on Google Colab:
-
-**Grid:** 8 models × 2 datasets × 5 seeds = **80 runs**
-
-**Steps:**
-1. Open `llm_agr_repro.ipynb` in Google Colab
-2. Mount Google Drive when prompted
-3. Run all cells top-to-bottom (cells copy data from Drive to local SSD, install deps, generate and execute the run script)
-4. The notebook syncs logs to Drive after each run — safe to interrupt and re-run
-
-After all 80 logs exist, aggregate results locally:
+### Aggregating & Visualizing Replication Results
+Once the log files are generated under `log/{dataset}/`, parse and format them into comparative tables matching the paper's formats:
 
 ```bash
 python aggregate.py
 ```
 
-**Outputs in `results/`:**
-| File | Contents |
-|------|---------|
-| `table3_repro.md` | Mean ± std table matching paper Table 3; `*` marks significance (p < 0.05) |
-| `paper_vs_ours.md` | Cell-by-cell gap to reported paper numbers; ⚠️ flags > 5% relative difference |
-| `SUMMARY.md` | Run count, missing logs, patches applied, anomalies |
-| `amazon_book.csv` / `yelp.csv` | Long-format per-seed metric data |
+This generates three files under `results/`:
+- `table3_repro.md`: Mean $\pm$ std dev metrics table (Recall@K and NDCG@K) matching paper Table 3, with significance markers (`*` for $p < 0.05$).
+- `paper_vs_ours.md`: A cell-by-cell comparison outlining the exact metric differences against the paper's reported values.
+- `SUMMARY.md`: High-level execution summary, anomalies, and logs inventory.
+
+---
+
+## Workflow 2: Shilling Attack Robustness (75-Run Grid)
+
+To test the robustness of the Adaptive Graph Structure (AGS) learning and Information Bottleneck (IB) regularizers, we perform malicious bot injection sweeps.
+
+### 1. Running the Attack Sweep
+Run the grid sweep over variants (full, ablations, base models), attack sizes (0%, 5%, 10%, 15%, 25%), and seeds:
+
+```bash
+# Run attack sweep for a specific dataset and strategy
+python run_attack_grid.py amazon bandwagon
+python run_attack_grid.py amazon random
+```
+
+Results are saved to `results/attack_grid.csv`. The script skips existing lines in the CSV file, allowing you to stop and resume at any time.
+
+### 2. Plotting and Analysing Results
+Once the grid runs complete, summarize the attack data and generate trend curves:
+
+```bash
+python analyze_attack.py results/attack_grid.csv
+```
+
+This outputs the following artifacts in the `results/` directory:
+- `attack_summary.csv`: Aggregated mean and standard deviations of metric degradations.
+- `robustness.png`: Line plots showing Recall/NDCG degradation under increasing noise.
+- `attack_success.png`: Line plots tracking the target item promotion success rate (Target HR@20 and Exposure@20).
+- `ATTACK_FINDINGS.md`: A summary markdown file analyzing model vulnerabilities under each attack strategy.
+
+### 3. Custom Single Attack Config
+For ad-hoc testing, write a custom configuration YAML file and pass it using `--attack_config`:
+
+```bash
+# example_attack.yml
+attack:
+  enabled: true
+  attack_size: 10       # % of fake users to inject relative to genuine users
+  num_targets: 10       # number of long-tail items to push
+  strategy: bandwagon   # filler profile selection strategy: bandwagon or random
+  target_seed: 42
+  emb_mode: clone       # fake bot embeddings: clone (copy from user) or mean
+```
+
+Execute training under attack:
+```bash
+python main.py --model bigcf_agr --dataset amazon --seed 42 --attack_config example_attack.yml
+```
+
+---
+
+## Workflow 3: Generative Explainability & Semantic Projector
+
+The Generative Explainability Module bridges graph collaborative representations and natural language preferences using a multi-step pipeline:
+1. Extract user and item collaborative embeddings from the GNN backbone.
+2. Project collaborative embeddings to the LLM semantic space using the trained projector MLP (`gen_mlp`).
+3. Retrieve semantic nearest-neighbor item descriptions from the dataset.
+4. Prompt a local `Qwen2.5-7B-Instruct` generator to synthesize explanations matching user interests to item traits.
+
+### Running the Module
+Generate personalized recommendations explanations and calculate semantic alignments for a sample of users:
+
+```bash
+python explain.py --model lightgcn_agr --dataset amazon --checkpoint ./checkpoint/lightgcn_agr/lightgcn_agr-amazon-42.pth --num_users 5 --output results/explainability_report.md
+```
+
+### Key Architectural Insight
+* **MLP Projector Behavior:** During testing, we noticed that in `LightGCN_AGR`, the projected embeddings had low cosine similarity (around random) with the ground-truth LLM embeddings. Code analysis revealed that `LightGCN_AGR.cal_loss` does not compute or optimize the reconstruction loss (`recon_loss`), leaving its `self.gen_mlp` mapping unoptimized. In contrast, `BiGCF_AGR` optimizes `recon_loss` alongside standard collaborative filtering objectives, leading to high-quality, aligned semantic embeddings.
 
 ---
 
 ## Project Structure
 
 ```
-LLM-AGR/
-├── main.py                      # Single training run entry point
-├── run_attack_grid.py           # 75-run shilling attack grid
-├── analyze_attack.py            # Attack result summarizer & plotter
-├── aggregate.py                 # Aggregate 80 repro logs into tables
-├── llm_agr_repro.ipynb          # Colab reproduction notebook
-├── requirements.txt
-├── config/
-│   ├── configurator.py          # CLI arg + YAML config parser
-│   └── models_config/           # Per-model YAML configs
-│       ├── lightgcn.yml / lightgcn_agr.yml
-│       ├── sgl.yml / sgl_agr.yml
-│       ├── simgcl.yml / simgcl_agr.yml
-│       ├── bigcf.yml / bigcf_agr.yml
-│       └── default.yml
-├── models/
-│   ├── general_cf/              # Model implementations
-│   ├── base_model.py
-│   └── aug_utils.py / loss_utils.py / model_utils.py
-├── trainer/
-│   ├── trainer.py               # Training loop
-│   └── metrics.py / logger.py / utils.py
-├── load_data/
-│   ├── data_handler_general_cf.py
-│   ├── datasets_general_cf.py
-│   └── download_data.py         # Auto-download from Google Drive
-├── attack/
-│   └── shilling.py              # Shilling attack injector
-├── data/
-│   ├── amazon/                  # trn_mat, val_mat, tst_mat, usr/itm embeddings
-│   └── yelp/
-├── logs/                        # Training logs (dataset/model_seedN.log)
-├── checkpoint/                  # Saved model weights
-└── results/                     # CSVs, markdown tables, plots
+CS_555_Project/
+├── README.md                    # This instructions file
+├── requirements.txt             # Primary environment dependencies
+├── main.py                      # Training & model execution script
+├── run_grid.sh                  # Sequential 80-run replication sweep
+├── aggregate.py                 # Replication log aggregator & compiler
+├── run_attack_grid.py           # Resumable 75-run shilling grid sweep
+├── analyze_attack.py            # Shilling attack data analyzer & plotter
+├── explain.py                   # Generative recommendation explainability module
+├── llm_agr_repro.ipynb          # Google Colab replication notebook
+├── config/                      # Configurations and parameters
+│   ├── configurator.py          # Argument parser and configs merger
+│   └── models_config/           # Per-model and per-dataset YAML parameters
+├── models/                      # Model architecture implementations
+│   ├── general_cf/              # GNN backbones (LightGCN, SGL, SimGCL, BiGCF)
+│   ├── base_model.py            # Shared GNN model logic
+│   └── aug_utils.py             # AGR augmentations (AGS, IB, KD, projectors)
+├── trainer/                     # Training loops, loss metrics, and loggers
+├── load_data/                   # Graph construction and profile loaders
+├── attack/                      # Shilling attack injector logic
+├── data/                        # Graph datasets, raw profiles & pre-saved LLM embeddings
+├── log/                         # Output training logs
+├── checkpoint/                  # Saved .pth weights
+└── results/                     # CSV logs, markdown reports, and trend curves
 ```
-
----
-
-## Supported Models
-
-| Model | Type | Description |
-|-------|------|-------------|
-| `lightgcn` | Base | LightGCN collaborative filtering |
-| `lightgcn_agr` | LLM-enhanced | LightGCN + AGR augmentation |
-| `sgl` | Base | Self-supervised Graph Learning |
-| `sgl_agr` | LLM-enhanced | SGL + AGR augmentation |
-| `simgcl` | Base | Simple Graph Contrastive Learning |
-| `simgcl_agr` | LLM-enhanced | SimGCL + AGR augmentation |
-| `bigcf` | Base | BiGCF collaborative filtering |
-| `bigcf_agr` | LLM-enhanced | BiGCF + AGR augmentation |
-
-## Supported Datasets
-
-| Dataset | Key | Users | Notes |
-|---------|-----|-------|-------|
-| Amazon-book | `amazon` | — | Default dataset |
-| Yelp | `yelp` | — | Restaurant reviews |
